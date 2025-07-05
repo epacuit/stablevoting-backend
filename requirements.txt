@@ -25,4 +25,4 @@ certifi==2024.8.30
 
 # Math and algorithms (for voting)
 nashpy==0.0.40
-numba==0.60.0  # Works fine with Python 3.11
+numba==0.61.0  # Works fine with Python 3.11
