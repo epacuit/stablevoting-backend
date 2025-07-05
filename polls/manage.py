@@ -85,7 +85,7 @@ async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
         # UPDATED: Admin notification using new send_email
         background_tasks.add_task(
             send_email,
-            to_email="noreply@stablevoting.org",
+            to_email="stablevoting.org@gmail.com",
             subject="New Poll Created",
             html_body=f"""<p>Poll Created: https://stablevoting.org/results/{result.inserted_id}?oid={owner_id}</p>
             <p>vote: https://stablevoting.org/vote/{result.inserted_id}?oid={owner_id}</p>            
@@ -96,7 +96,7 @@ async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
         # Also send to Eric
         background_tasks.add_task(
             send_email,
-            to_email="noreply@stablevoting.org",
+            to_email="epacuit@umd.edu",
             subject="New Poll Created",
             html_body=f"""<p>Poll Created: https://stablevoting.org/results/{result.inserted_id}?oid={owner_id}</p>
             <p>vote: https://stablevoting.org/vote/{result.inserted_id}?oid={owner_id}</p>            
