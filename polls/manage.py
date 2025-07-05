@@ -36,18 +36,19 @@ import certifi
 # db = client.StableVoting.Polls
 
 # MongoDB connection
-mongo_details = os.getenv('MONGO_DETAILS')
+mongo_details = os.getenv('MONGODB_URI')
 print("mongo_details ", mongo_details)
 
 # Check if we're in development (local MongoDB doesn't use SSL)
-if 'localhost' in mongo_details or '127.0.0.1' in mongo_details:
+if mongo_details and ('localhost' in mongo_details or '127.0.0.1' in mongo_details):
     # Local connection without SSL
     client = motor.motor_asyncio.AsyncIOMotorClient(mongo_details)
 else:
     # Production connection with SSL
     client = motor.motor_asyncio.AsyncIOMotorClient(mongo_details, tlsCAFile=certifi.where(), tls=True)
 
-db = client.StableVoting.Polls
+data_base = os.getenv('MONGO_DB_NAME', 'StableVoting')
+db = client.data_base.Polls
 
 print(db)
 
