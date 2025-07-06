@@ -97,6 +97,11 @@ class PollRankingInfo(BaseModel):
             }
         }
    
+class VoterDetail(BaseModel):
+    voter_id: str
+    email: str
+    voteUrl: str
+
 class PollInfo(BaseModel):
     is_owner: bool
     title: str
@@ -113,6 +118,8 @@ class PollInfo(BaseModel):
     timezone: Union[str, None] = None
     show_outcome: bool
     can_view_outcome_before_closing: bool
+    voter_details: Optional[List[VoterDetail]] = None
+
 
 class RankingsInfo(BaseModel):
     #candidates: List[str]
