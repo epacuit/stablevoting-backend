@@ -100,7 +100,8 @@ class PollRankingInfo(BaseModel):
 class VoterDetail(BaseModel):
     voter_id: str
     email: str
-    voteUrl: str
+    emailsSent: int
+    # Removed hasVoted and voteUrl fields for privacy
 
 class PollInfo(BaseModel):
     is_owner: bool

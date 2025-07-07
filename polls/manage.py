@@ -59,6 +59,7 @@ async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
     now = arrow.now()
     print(now.format('YYYY-MM-DD HH:mm'))
     voter_ids = []
+    voter_email_map = {}
     if poll_data.is_private: 
         voter_ids = generate_voter_ids(len(poll_data.voter_emails))
         voter_email_map = {vid: email for vid, email in zip(voter_ids, poll_data.voter_emails)}
@@ -264,6 +265,7 @@ async def poll_information(id, oid):
     if is_owner and document.get("is_private", False):
         voter_email_map = document.get("voter_email_map", {})
         voter_ids = document.get("voter_ids", [])
+        email_send_counts = document.get("email_send_counts", {})
         
         voter_details = []
         if voter_email_map:
@@ -272,7 +274,7 @@ async def poll_information(id, oid):
                 voter_details.append({
                     "voter_id": vid,
                     "email": email,
-                    "voteUrl": f"https://stablevoting.org/vote/{id}?vid={vid}"
+                    "emailsSent": email_send_counts.get(email, 1)  # Default to 1 if not tracked
                 })
         else:
             # Old polls
@@ -280,13 +282,12 @@ async def poll_information(id, oid):
                 voter_details.append({
                     "voter_id": vid,
                     "email": "Email not available (legacy poll)",
-                    "voteUrl": f"https://stablevoting.org/vote/{id}?vid={vid}"
+                    "emailsSent": 0
                 })
         
         resp["voter_details"] = voter_details
 
     return resp
-
 
 async def delete_voter(poll_id: str, voter_id: str, owner_id: str):
     """Delete a voter from a private poll."""
@@ -307,20 +308,9 @@ async def delete_voter(poll_id: str, voter_id: str, owner_id: str):
     # Get current voter lists
     voter_ids = document.get("voter_ids", [])
     voter_email_map = document.get("voter_email_map", {})
-    regenerated_voters_map = document.get("regenerated_voters_map", {})
     
     if voter_id not in voter_ids:
         return {"error": "Voter not found."}
-    
-    # Check if this voter_id was regenerated from another ID
-    original_voter_id = None
-    for new_id, old_id in regenerated_voters_map.items():
-        if new_id == voter_id:
-            original_voter_id = old_id
-            break
-    
-    # Also check if this voter_id has any regenerated IDs
-    regenerated_ids = [new_id for new_id, old_id in regenerated_voters_map.items() if old_id == voter_id]
     
     # Remove voter_id from the list
     voter_ids.remove(voter_id)
@@ -329,23 +319,8 @@ async def delete_voter(poll_id: str, voter_id: str, owner_id: str):
     if voter_id in voter_email_map:
         del voter_email_map[voter_id]
     
-    # Clean up regenerated_voters_map
-    # Remove entries where this voter_id is the new ID
-    if voter_id in regenerated_voters_map:
-        del regenerated_voters_map[voter_id]
-    
-    # Remove entries where this voter_id is the old ID
-    for new_id in regenerated_ids:
-        if new_id in regenerated_voters_map:
-            del regenerated_voters_map[new_id]
-    
-    # Remove any ballots from this voter or its regenerated/original IDs
-    all_related_ids = [voter_id]
-    if original_voter_id:
-        all_related_ids.append(original_voter_id)
-    all_related_ids.extend(regenerated_ids)
-    
-    ballots = [b for b in document["ballots"] if b.get("voter_id") not in all_related_ids]
+    # Remove any ballots from this voter
+    ballots = [b for b in document["ballots"] if b.get("voter_id") != voter_id]
     
     # Update the database
     result = await db.update_one(
@@ -353,7 +328,6 @@ async def delete_voter(poll_id: str, voter_id: str, owner_id: str):
         {"$set": {
             "voter_ids": voter_ids,
             "voter_email_map": voter_email_map,
-            "regenerated_voters_map": regenerated_voters_map,
             "ballots": ballots
         }}
     )
@@ -361,8 +335,8 @@ async def delete_voter(poll_id: str, voter_id: str, owner_id: str):
     if result.modified_count > 0:
         return {"success": "Voter deleted."}
     else:
-        return {"error": "Failed to delete voter."}
-    
+        return {"error": "Failed to delete voter."}    
+
 
 async def regenerate_voter_link(poll_id: str, voter_id: str, owner_id: str, background_tasks: BackgroundTasks):
     """Generate a new voter ID for an existing voter."""
@@ -441,6 +415,63 @@ async def regenerate_voter_link(poll_id: str, voter_id: str, owner_id: str, back
     else:
         return {"error": "Failed to generate new link."}
     
+async def delete_ballot(id, vid):
+    """Given a voter id, delete a ballot from the poll"""
+    document = await db.find_one({"_id": ObjectId(id)})  
+    if document is None: # poll not found
+        return {"error": "Poll not found."}
+    else: 
+        ballots = document["ballots"]
+        if document["is_private"] and (vid is not None and vid in document["voter_ids"]): 
+            for bidx, b in enumerate(ballots): 
+                if b["voter_id"] == vid: 
+                    # update
+                    ballots.pop(bidx)
+                    await db.update_one( {"_id": ObjectId(id)}, {"$set": {"ballots": ballots}})
+                    return {"success": "Ballot deleted."}
+        elif document["is_private"] and (vid is  None or vid not in document["voter_ids"]): 
+            return {"error": "Voter id not found, cannot delete the ballot."}
+        elif not document["is_private"]: 
+            return {"error": "Can only delete ballots in private polls."}
+        return {"error": "Ballot not found."}
+
+
+async def delete_all_ballots(id, owner_id):
+    """Delete all ballots from a poll."""
+    if not ObjectId.is_valid(id):
+        return {"error": "Invalid poll ID."}
+    
+    document = await db.find_one({"_id": ObjectId(id)})
+    
+    if document is None:
+        return {"error": "Poll not found."}
+    
+    if document["owner_id"] != owner_id:
+        return {"error": "You do not have permission to delete ballots from this poll."}
+    
+    # Check if poll is closed or completed
+    if document.get("is_completed", False):
+        return {"error": "Cannot delete ballots from a completed poll."}
+    
+    if poll_closed(document.get("closing_datetime", None), document.get("timezone", None)):
+        return {"error": "Cannot delete ballots from a closed poll."}
+    
+    # Get the number of ballots to be deleted for the response
+    num_ballots = len(document.get("ballots", []))
+    
+    if num_ballots == 0:
+        return {"error": "No ballots to delete."}
+    
+    # Delete all ballots
+    result = await db.update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {"ballots": []}}
+    )
+    
+    if result.modified_count > 0:
+        return {"success": f"Successfully deleted {num_ballots} ballot(s)."}
+    else:
+        return {"error": "Failed to delete ballots."}
 
 async def submit_ballot(ballot, id, vid, allow_multiple_vote_pwd):
     """Submit a ballot to the poll."""
@@ -1032,3 +1063,90 @@ async def demo_poll_outcome(rankings):
     result["election_id"] = "demo_poll"
     print("result ", result)
     return result
+
+
+async def resend_voter_email(poll_id: str, voter_email: str, owner_id: str, background_tasks: BackgroundTasks):
+    """Resend invitation email to a voter with a new voting link."""
+    if not ObjectId.is_valid(poll_id):
+        return {"error": "Invalid poll ID."}
+    
+    document = await db.find_one({"_id": ObjectId(poll_id)})
+    
+    if document is None:
+        return {"error": "Poll not found."}
+    
+    if document["owner_id"] != owner_id:
+        return {"error": "Not authorized."}
+    
+    if not document.get("is_private", False):
+        return {"error": "Can only manage voters in private polls."}
+    
+    voter_email_map = document.get("voter_email_map", {})
+    email_send_counts = document.get("email_send_counts", {})
+    
+    # Find the voter_id for this email
+    voter_id = None
+    for vid, email in voter_email_map.items():
+        if email == voter_email:
+            voter_id = vid
+            break
+    
+    if not voter_id:
+        return {"error": "Voter email not found."}
+    
+    # Generate new voter ID
+    new_voter_id = generate_voter_ids(1)[0]
+    
+    # Get voter_ids list
+    voter_ids = document.get("voter_ids", [])
+    
+    # Replace old ID with new ID in voter_ids list
+    if voter_id in voter_ids:
+        voter_ids[voter_ids.index(voter_id)] = new_voter_id
+    
+    # Update email map
+    del voter_email_map[voter_id]
+    voter_email_map[new_voter_id] = voter_email
+    
+    # Update any existing ballot to use the new voter_id
+    ballots = document["ballots"]
+    for ballot in ballots:
+        if ballot.get("voter_id") == voter_id:
+            ballot["voter_id"] = new_voter_id
+    
+    # Increment email send count
+    email_send_counts[voter_email] = email_send_counts.get(voter_email, 1) + 1
+    
+    # Update the database
+    result = await db.update_one(
+        {"_id": ObjectId(poll_id)}, 
+        {"$set": {
+            "voter_ids": voter_ids,
+            "voter_email_map": voter_email_map,
+            "email_send_counts": email_send_counts,
+            "ballots": ballots
+        }}
+    )
+    
+    if result.modified_count > 0:
+        # Send email with new link
+        if not SKIP_EMAILS:
+            link = f"https://stablevoting.org/vote/{poll_id}?vid={new_voter_id}"
+            
+            background_tasks.add_task(
+                send_email,
+                to_email=voter_email,
+                subject=f"Reminder: Participate in the poll - {document['title']}",
+                html_body=f"""<p>This is a reminder to participate in the poll.</p>
+                <p>Poll: {document['title']}</p>
+                <p>Description: {document.get('description', '')}</p>
+                <p>Your voting link: <a href="{link}">{link}</a></p>
+                <p>Note: This new link replaces any previous links sent to you.</p>""",
+                tag="voter-invitation-resend"
+            )
+        
+        return {
+            "success": f"Email resent to {voter_email}. Total emails sent: {email_send_counts[voter_email]}"
+        }
+    else:
+        return {"error": "Failed to resend email."}

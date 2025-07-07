@@ -4,7 +4,7 @@ from typing import Optional
 from io import BytesIO  # ADD THIS
 
 from bson import ObjectId
-from polls.manage import create_poll, update_poll, delete_poll, submit_ballot, delete_ballot, add_rankings, poll_outcome, poll_information, submitted_ranking_information, poll_ranking_information, demo_poll_outcome, delete_voter, regenerate_voter_link
+from polls.manage import create_poll, update_poll, delete_poll, submit_ballot, delete_ballot, add_rankings, poll_outcome, poll_information, submitted_ranking_information, poll_ranking_information, demo_poll_outcome, delete_voter, regenerate_voter_link, delete_all_ballots, delete_ballot, resend_voter_email
 from polls.models import CreatePoll, UpdatePoll, PollInfo,  Ballot, PollRankingInfo, RankingsInfo, OutcomeInfo, DemoRankingsInput
 from polls.qr_utils import generate_poll_qr_code  # ADD THIS (note the dot for relative import)
 
@@ -266,6 +266,27 @@ async def delete_a_voter(
     raise HTTPException(400, "Something went wrong")
 
 
+@router.delete("/polls/ballots/{id}/all", tags=["polls"])
+async def delete_all_ballots_endpoint(
+    id: str,
+    oid: Optional[str] = None
+):
+    """Delete all ballots from a poll"""
+    print(f"Deleting all ballots from poll {id}")
+    print(f"Owner ID: {oid}")
+    
+    response = await delete_all_ballots(id, oid)
+    
+    if response is not None and "error" not in response.keys():
+        return response
+    elif response is not None:
+        raise HTTPException(
+            status_code=403,
+            detail=response["error"],
+            headers={"X-Error": "Not authorized"},
+        )
+    raise HTTPException(400, "Something went wrong")
+
 @router.post("/polls/voters/{poll_id}/{voter_id}/regenerate", tags=["polls"])
 async def regenerate_voter_link_endpoint(
     poll_id: str,
@@ -278,6 +299,37 @@ async def regenerate_voter_link_endpoint(
     print(f"Owner ID: {oid}")
     
     response = await regenerate_voter_link(poll_id, voter_id, oid, background_tasks)
+    
+    if response is not None and "error" not in response.keys():
+        return response
+    elif response is not None:
+        raise HTTPException(
+            status_code=403,
+            detail=response["error"],
+            headers={"X-Error": "Not authorized"},
+        )
+    raise HTTPException(400, "Something went wrong")
+
+
+@router.post("/polls/voters/{poll_id}/resend", tags=["polls"])
+async def resend_voter_email_endpoint(
+    poll_id: str,
+    background_tasks: BackgroundTasks,
+    request_body: dict,
+    oid: Optional[str] = None
+):
+    """Resend invitation email to a voter"""
+    email = request_body.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required"
+        )
+    
+    print(f"Resending email to {email} for poll {poll_id}")
+    print(f"Owner ID: {oid}")
+    
+    response = await resend_voter_email(poll_id, email, oid, background_tasks)
     
     if response is not None and "error" not in response.keys():
         return response
