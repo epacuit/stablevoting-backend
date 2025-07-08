@@ -757,6 +757,8 @@ async def submitted_ranking_information(id, owner_id):
         unranked_candidates = [c for c in document["candidates"] if all([c not in b["ranking"].keys() for b in document["ballots"]])]
         
         num_empty_ballots = len([b for b in document["ballots"] if all([c not in b["ranking"].keys() for c in document["candidates"]])])
+        cand_to_cidx = {c: str(i) for i, c in enumerate(document["candidates"])}
+        cmap = {str(cidx):c for c,cidx in cand_to_cidx.items()}
 
         resp = {
             "unranked_candidates": unranked_candidates,
@@ -764,12 +766,11 @@ async def submitted_ranking_information(id, owner_id):
             "num_voters": 0,
             "num_rows": 0,
             "columns": [[]],
-            "csv_data": [[]]
+            "csv_data": [[]],
+            "cmap": cmap,
         }
 
         if len(document["ballots"]) > 0:
-            cand_to_cidx = {c: str(i) for i, c in enumerate(document["candidates"])}
-            cmap = {str(cidx):c for c,cidx in cand_to_cidx.items()}
 
             prof = ProfileWithTies([{cand_to_cidx[c]: rank 
                                      for c,rank in r["ranking"].items()} 
@@ -781,7 +782,6 @@ async def submitted_ranking_information(id, owner_id):
             resp["num_voters"] = num_voters
             resp["num_rows"] = num_rows
             resp["columns"] = columns
-            resp["cmap"] = cmap
             resp["csv_data"] = generate_csv_data(prof, cmap)
     return resp
 
