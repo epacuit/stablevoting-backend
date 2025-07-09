@@ -1061,6 +1061,17 @@ async def demo_poll_outcome(rankings):
     result["closing_datetime"] = closing_datetime
     result["timezone"] = timezone
     result["election_id"] = "demo_poll"
+
+    result['sv_winners'] = [str(w) for w in result.get('sv_winners', [])]
+    if 'sc_winners' in result:
+        # if you want to enforce them too
+        result['sc_winners'] = [str(w) for w in result['sc_winners']]
+    if 'condorcet_winner' in result and result['condorcet_winner'] is not None:
+        result['condorcet_winner'] = str(result['condorcet_winner'])
+    if 'linear_order' in result:
+        result['linear_order'] = [str(w) for w in result['linear_order']]
+
+
     print("result ", result)
     return result
 
