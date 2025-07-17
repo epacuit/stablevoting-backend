@@ -30,7 +30,8 @@ async def create_a_poll(poll_data: CreatePoll, background_tasks: BackgroundTasks
     '''
     create a poll
     '''
-    print("Creating a poll with ", poll_data)
+    print("POLL DATA")
+    print(poll_data)
     response = await create_poll(background_tasks, poll_data)
     print("returning ", response)
     if response:

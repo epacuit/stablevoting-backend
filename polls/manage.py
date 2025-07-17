@@ -55,7 +55,7 @@ print(db)
 
 async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
     """Create a poll."""
-    print("creating a poll...")
+    print("HERE!!!!! creating a poll...")
     now = arrow.now()
     print(now.format('YYYY-MM-DD HH:mm'))
     voter_ids = []
@@ -68,6 +68,7 @@ async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
     poll = {
         "title": poll_data.title,
         "description": poll_data.description,
+        "hide_description": poll_data.hide_description,
         "candidates": poll_data.candidates,
         "is_private": poll_data.is_private,
         "voter_ids": voter_ids,
@@ -78,6 +79,7 @@ async def create_poll(background_tasks: BackgroundTasks, poll_data: CreatePoll):
         "timezone": poll_data.timezone,
         "can_view_outcome_before_closing": poll_data.can_view_outcome_before_closing,
         "show_outcome": poll_data.show_outcome,
+        "allow_multiple_votes": poll_data.allow_multiple_votes,
         "ballots": [],
         "is_completed": False,
         "result": None,
@@ -164,6 +166,7 @@ async def update_poll(id, owner_id, poll_data: UpdatePoll, background_tasks: Bac
         new_poll = {
             "title": get_data("title"),
             "description": get_data("description"),
+            "hide_description": get_data("hide_description"),
             "is_private": get_data("is_private"),
             "voter_ids": document["voter_ids"] + new_voter_ids,
             "voter_email_map": updated_voter_email_map,
@@ -172,6 +175,7 @@ async def update_poll(id, owner_id, poll_data: UpdatePoll, background_tasks: Bac
             "timezone": get_data("timezone"),
             "can_view_outcome_before_closing": get_data("can_view_outcome_before_closing"),
             "show_outcome": get_data("show_outcome"),
+            "allow_multiple_votes": get_data("allow_multiple_votes"),
             "ballots": document["ballots"],
             "is_completed": get_data("is_completed"),
             "result": document["result"],
@@ -246,13 +250,16 @@ async def poll_information(id, oid):
 
     resp = {
         "is_owner": is_owner,
+        "election_id": str(document["_id"]),
         "title": document.get("title", "n/a"),
         "description": document.get("description", "n/a"),
+        "hide_description": document.get("hide_description", False),
         "num_ballots": len(document["ballots"]),
         "candidates": document.get("candidates", []),
         "is_private": document.get("is_private", False),
         "num_invited_voters": len(document.get("voter_ids", list())) if document.get("is_private", False) else None,
         "show_rankings": document.get("show_rankings", True),
+        "allow_multiple_votes": document.get("allow_multiple_votes", False),
         "closing_datetime": document.get("closing_datetime", ""),
         "timezone": document.get("timezone", ""),
         "can_view_outcome_before_closing": document.get("can_view_outcome_before_closing", True),
@@ -476,13 +483,14 @@ async def delete_all_ballots(id, owner_id):
 async def submit_ballot(ballot, id, vid, allow_multiple_vote_pwd):
     """Submit a ballot to the poll."""
 
-    allow_multiple_vote = allow_multiple_vote_pwd == os.getenv('ALLOW_MULTIPLE_VOTE_PWD')
-    print("allow multiple vote: ", allow_multiple_vote)
+    allow_multiple_vote_from_url = allow_multiple_vote_pwd == os.getenv('ALLOW_MULTIPLE_VOTE_PWD')
+    print("allow_multiple_vote_from_url: ", allow_multiple_vote_from_url)
     read_concern.ReadConcern('linearizable')
     document = await db.find_one({"_id": ObjectId(id)}) 
     if document is None: # poll not found
         return {"error": "Poll not found."}
     else: 
+        allow_mutliple_votes = document.get("allow_multiple_votes", False) or allow_multiple_vote_from_url
         ballots = document["ballots"]
         if document["is_private"] and (vid is not None and vid in document["voter_ids"]): 
             for bidx, b in enumerate(ballots): 
@@ -496,7 +504,7 @@ async def submit_ballot(ballot, id, vid, allow_multiple_vote_pwd):
         elif document["is_private"] and (vid is  None or vid not in document["voter_ids"]): 
             return {"error": "The poll is private."}
         elif not document["is_private"]: 
-            if not allow_multiple_vote and ballot.ip != "n/a":
+            if not allow_mutliple_votes and ballot.ip != "n/a":
                 for b in ballots: 
                     if b["ip"] == ballot.ip:
                         return {"error": "Already submitted a ballot."}
@@ -660,7 +668,7 @@ async def poll_ranking_information(id, vid, allowmultiplevote):
     document = await db.find_one({"_id": ObjectId(id)})  
     print(document) 
 
-    allow_multiple_vote = allowmultiplevote == os.getenv('ALLOW_MULTIPLE_VOTE_PWD')
+    allow_multiple_vote = document["allow_multiple_votes"] or allowmultiplevote == os.getenv('ALLOW_MULTIPLE_VOTE_PWD')
 
     if document is None: # poll not found
         return {
@@ -668,6 +676,7 @@ async def poll_ranking_information(id, vid, allowmultiplevote):
             "poll_found": False,
             "title": "N/A",
             "allow_multiple_vote": allow_multiple_vote,
+            "hide_description": document["hide_description"],
             "closing_datetime": "n/a",
             "timezone": "n/a",
             "is_closed": True,
@@ -715,6 +724,7 @@ async def poll_ranking_information(id, vid, allowmultiplevote):
     resp = {
         "title": document["title"],
         "description": document["description"],
+        "hide_description": document["hide_description"],
         "candidates": document["candidates"],
         "allow_multiple_vote": allow_multiple_vote,
         "is_private": document["is_private"],
@@ -727,6 +737,7 @@ async def poll_ranking_information(id, vid, allowmultiplevote):
         "can_vote": v_can_vote,
         "can_view_outcome": v_can_view_outcome
         }
+    print("poll_ranking_information: resp", resp)
     if document["is_private"] and (vid is not None and vid in document["voter_ids"]): 
         for b in document["ballots"]: 
             if b["voter_id"] == vid: 

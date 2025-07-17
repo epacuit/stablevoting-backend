@@ -6,6 +6,7 @@ from bson import ObjectId
 class CreatePoll(BaseModel):
     title: str # title of the poll
     description: Union[str, None] = None # description of the poll
+    hide_description: bool = True # if True, initially hide the description on the on the vote page 
     candidates: List[str] # list of candidates
     is_private: bool = False # if True, only accept votes from specified list of voters
     voter_emails: List[str] = [] # list of emails for the voters, not saved in the database
@@ -14,8 +15,13 @@ class CreatePoll(BaseModel):
     timezone: Optional[str] # timezone of the person creating the poll
     can_view_outcome_before_closing: bool = True # if True, can view the outcome before the poll closes
     show_outcome: bool = True # if True, anyone can view the outcome of the poll with the results link
+    allow_multiple_votes: bool = False # allow multiple votes from the same ip address
+    put_unranked_candidates_at_bottom: bool = True # if True, candidates not ranked by any voter will be put at the bottom of the rankings
+    allow_ties: bool = True # if True, allow ties in the rankings
+    num_candidates_to_rank: Optional[int] = None # number of candidates to rank, if None, all candidates must be ranked
 
     class Config:
+        extra = "forbid"
         allow_population_by_field_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
@@ -35,18 +41,22 @@ class CreatePoll(BaseModel):
         }
 
 class UpdatePoll(BaseModel):
-    title: Union[str, None] = None
-    description: Union[str, None] = None
-    candidates: Union[List[str], None] = None
-    is_private: Union[bool, None] = None
-    is_completed: Union[bool, None] = None
-    new_voter_emails: Union[List[str], None] = None # not saved in the database
-    show_rankings: Union[bool, None] = None
-    closing_datetime: Union[str, None] = None
-    timezone: Union[str, None] = None
-    can_view_outcome_before_closing: Union[bool, None] = None
-    show_outcome: Union[bool, None] = None
-    is_completed: Union[bool, None] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    hide_description: Optional[bool] = None  # Changed default from True to None
+    candidates: Optional[List[str]] = None
+    is_private: Optional[bool] = None
+    is_completed: Optional[bool] = None  # Removed duplicate
+    new_voter_emails: Optional[List[str]] = None
+    show_rankings: Optional[bool] = None
+    closing_datetime: Optional[str] = None
+    timezone: Optional[str] = None
+    can_view_outcome_before_closing: Optional[bool] = None
+    show_outcome: Optional[bool] = None
+    allow_multiple_votes: Optional[bool] = None  # Changed default from False to None
+    put_unranked_candidates_at_bottom: Optional[bool] = None  # Add if needed
+    allow_ties: Optional[bool] = None  # Add if needed
+    num_candidates_to_rank: Optional[int] = None  # Add if needed
 
     class Config:
         allow_population_by_field_name = True
@@ -70,6 +80,7 @@ class UpdatePoll(BaseModel):
 class PollRankingInfo(BaseModel): 
     title: str
     description: Union[str, None] = None
+    hide_description: bool = True # if True, initially hide the description on the vote page
     allow_multiple_vote: bool # allow multiple votes for debugging
     candidates: List[str]
     ranking: Dict[str, int] = {}
@@ -108,6 +119,8 @@ class PollInfo(BaseModel):
     title: str
     creation_dt: str
     description: Union[str, None] = None 
+    hide_description: bool # if True, initially hide the description on the vote page
+    election_id: str
     candidates: List[str]
     num_ballots: int
     is_private: bool
@@ -115,6 +128,7 @@ class PollInfo(BaseModel):
     is_closed: bool
     is_completed: bool
     show_rankings: bool
+    allow_multiple_votes: bool
     closing_datetime: Union[str, None] = None
     timezone: Union[str, None] = None
     show_outcome: bool
